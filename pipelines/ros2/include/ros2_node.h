@@ -19,6 +19,7 @@ class ROS2Node : public TRGPlanner {
 
   void publishTimer();
   void debugTimer();
+  void replanTimer();
 
  protected:
   //// ROS2 Node
@@ -53,6 +54,11 @@ class ROS2Node : public TRGPlanner {
     std::string frame_id;
     float       publish_rate;
     float       debug_rate;
+    bool        replan_enabled;
+    float       replan_check_rate;
+    float       replan_min_interval;
+    float       replan_min_translation;
+    float       replan_min_yaw;
   } param_;
 
   std::unordered_map<std::string, std::string> topics_;
@@ -73,6 +79,17 @@ class ROS2Node : public TRGPlanner {
   } tf_cache;
 
   void vizGraph(std::string type, rclcpp::Publisher<ROS2Types::MarkerArray>::SharedPtr pub);
+  float yawFromQuat(const Eigen::Vector4f &quat) const;
+  float shortestYawDiff(float lhs, float rhs) const;
+  void  setReplanReferenceLocked(const Eigen::Vector3f &pose, const Eigen::Vector4f &quat);
+
+  rclcpp::TimerBase::SharedPtr replan_timer_;
+  std::mutex                   replan_mtx_;
+  std::atomic<bool>            has_goal_{false};
+  bool                         replan_reference_set_ = false;
+  Eigen::Vector3f              replan_reference_pose_ = Eigen::Vector3f::Zero();
+  Eigen::Vector4f              replan_reference_quat_ = Eigen::Vector4f(1, 0, 0, 0);
+  rclcpp::Time                 last_replan_request_time_{0, 0, RCL_ROS_TIME};
 };
 
 #endif  // PIPELINES_ROS2_INCLUDE_ROS2_NODE_H_

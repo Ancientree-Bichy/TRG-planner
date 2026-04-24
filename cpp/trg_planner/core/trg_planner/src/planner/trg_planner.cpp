@@ -10,8 +10,13 @@
 
 TRGPlanner::TRGPlanner() {}
 TRGPlanner::~TRGPlanner() {
-  thd.graph.join();
-  thd.planning.join();
+  is_running.store(false);
+  if (thd.graph.joinable()) {
+    thd.graph.join();
+  }
+  if (thd.planning.joinable()) {
+    thd.planning.join();
+  }
 }
 
 void TRGPlanner::init() {
@@ -65,10 +70,13 @@ void TRGPlanner::loadPrebuiltMap() {
     exit(1);
   }
 
-  std::string                 abs_path = std::string(TRG_DIR) + "/../../" + param_.preMapPath;
+  std::filesystem::path abs_path(param_.preMapPath);
+  if (!abs_path.is_absolute()) {
+    abs_path = std::filesystem::path(TRG_DIR) / "../.." / param_.preMapPath;
+  }
   pcl::PointCloud<PtsDefault> rawMap   = pcl::PointCloud<PtsDefault>();
-  if (pcl::io::loadPCDFile<PtsDefault>(abs_path, rawMap) == -1) {
-    print_error("Failed to load prebuilt map");
+  if (pcl::io::loadPCDFile<PtsDefault>(abs_path.string(), rawMap) == -1) {
+    print_error("Failed to load prebuilt map: " + abs_path.string());
     exit(1);
   }
 
@@ -97,6 +105,7 @@ void TRGPlanner::setParams(const std::string& config_path) {
 
   param_.isPreMap   = config["map"]["isPrebuiltMap"].as<bool>(false);
   param_.preMapPath = config["map"]["prebuiltMapPath"].as<std::string>("");
+  param_.waitPoseBeforeInit = config["map"]["waitPoseBeforeInit"].as<bool>(false);
   param_.isVoxelize = config["map"]["isVoxelize"].as<bool>(false);
   param_.VoxelSize  = config["map"]["voxelSize"].as<float>(0.1f);
 
@@ -127,6 +136,11 @@ void TRGPlanner::runGraphFSM() {
         }
 
         if (param_.isPreMap) {
+          if (param_.waitPoseBeforeInit && !flag_.poseIn) {
+            print_warning("Waiting for pose before prebuilt-map graph initialization");
+            fsm_.graph.transition(graphState::INIT);
+            break;
+          }
           auto start_init_graph = tic();
           trg_->initGraph(param_.isPreMap, state_.pose3d);
           print_warning("Graph initialization time: " + std::to_string(toc(start_init_graph, "s")) +

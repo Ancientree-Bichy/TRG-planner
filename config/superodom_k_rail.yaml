@@ -1,0 +1,22 @@
+isVerbose: false
+timer:
+  graphRate: 5.0
+  planningRate: 10.0
+map:
+  isPrebuiltMap: true
+  prebuiltMapPath: "/home/bichy/robocup_ws/SuperOdom/map_by_scanner/k-rail.pcd"
+  waitPoseBeforeInit: true
+  isVoxelize: true
+  voxelSize: 0.1
+trg:
+  isPrebuiltTRG: false
+  prebuiltTRGPath: ""
+  isUpdate: true
+  expandDist: 0.6
+  robotSize: 0.3
+  sampleNum: 10
+  heightThreshold: 0.16
+  collisionThreshold: 0.1
+  updateCollisionThreshold: 0.5
+  safetyFactor: 3.0
+  goalTolerance: 0.8

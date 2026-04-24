@@ -5,8 +5,6 @@
 int main(int argc, char **argv) {
   rclcpp::init(argc, argv);
 
-  signal(SIGINT, signal_handler);  // to exit program when ctrl+c
-
   auto     node = std::make_shared<rclcpp::Node>("trg_ros2_node");
   ROS2Node trg_ros2_node(node);
 

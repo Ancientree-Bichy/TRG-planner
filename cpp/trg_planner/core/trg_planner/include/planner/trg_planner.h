@@ -117,6 +117,7 @@ class TRGPlanner {
     /// Map parameters
     bool        isPreMap;
     std::string preMapPath;
+    bool        waitPoseBeforeInit;
     bool        isVoxelize;
     float       VoxelSize;
 

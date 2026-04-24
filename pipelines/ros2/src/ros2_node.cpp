@@ -1,5 +1,7 @@
 #include "ros2_node.h"
 
+#include <cmath>
+
 ROS2Node::ROS2Node(const rclcpp::Node::SharedPtr &node) : n_(node) {
   getParams(n_);
 
@@ -29,6 +31,12 @@ ROS2Node::ROS2Node(const rclcpp::Node::SharedPtr &node) : n_(node) {
   TRGPlanner::init();
   print("TRG Planner ROS2 initialized", TRGPlanner::param_.isVerbose);
 
+  if (param_.replan_enabled && param_.replan_check_rate > 0.0f) {
+    const auto period_ms =
+        std::chrono::milliseconds(static_cast<int>(1000.0f / param_.replan_check_rate));
+    replan_timer_ = n_->create_wall_timer(period_ms, std::bind(&ROS2Node::replanTimer, this));
+  }
+
   //// Threads
   thd.publish = std::thread(&ROS2Node::publishTimer, this);
   if (param_.isDebug) {
@@ -36,13 +44,26 @@ ROS2Node::ROS2Node(const rclcpp::Node::SharedPtr &node) : n_(node) {
   }
 }
 
-ROS2Node::~ROS2Node() { thd.publish.join(); }
+ROS2Node::~ROS2Node() {
+  is_running.store(false);
+  if (thd.publish.joinable()) {
+    thd.publish.join();
+  }
+  if (thd.debug.joinable()) {
+    thd.debug.join();
+  }
+}
 
 void ROS2Node::getParams(const rclcpp::Node::SharedPtr &n_) {
   n_->declare_parameter<bool>("ros2.isDebug", true);
   n_->declare_parameter<std::string>("ros2.frameId", "map");
   n_->declare_parameter<float>("ros2.publishRate", 1.0f);
   n_->declare_parameter<float>("ros2.debugRate", 1.0f);
+  n_->declare_parameter<bool>("ros2.replan.enabled", true);
+  n_->declare_parameter<float>("ros2.replan.checkRate", 2.0f);
+  n_->declare_parameter<float>("ros2.replan.minInterval", 2.0f);
+  n_->declare_parameter<float>("ros2.replan.minTranslation", 0.8f);
+  n_->declare_parameter<float>("ros2.replan.minYaw", 0.35f);
 
   n_->declare_parameter<std::string>("ros2.topic.input.egoPose",
                                      "/trg_ros2_node/input/default_ego_pose");
@@ -66,12 +87,18 @@ void ROS2Node::getParams(const rclcpp::Node::SharedPtr &n_) {
                                      "/trg_ros2_node/debug/default_pathInfo");
 
   n_->declare_parameter<std::string>("mapConfig", "default");
+  n_->declare_parameter<std::string>("mapConfigPath", "");
 
   //// Get parameters
   n_->get_parameter("ros2.isDebug", param_.isDebug);
   n_->get_parameter("ros2.frameId", param_.frame_id);
   n_->get_parameter("ros2.publishRate", param_.publish_rate);
   n_->get_parameter("ros2.debugRate", param_.debug_rate);
+  n_->get_parameter("ros2.replan.enabled", param_.replan_enabled);
+  n_->get_parameter("ros2.replan.checkRate", param_.replan_check_rate);
+  n_->get_parameter("ros2.replan.minInterval", param_.replan_min_interval);
+  n_->get_parameter("ros2.replan.minTranslation", param_.replan_min_translation);
+  n_->get_parameter("ros2.replan.minYaw", param_.replan_min_yaw);
 
   n_->get_parameter("ros2.topic.input.egoPose", topics_["egoPose"]);
   n_->get_parameter("ros2.topic.input.egoOdom", topics_["egoOdom"]);
@@ -86,9 +113,12 @@ void ROS2Node::getParams(const rclcpp::Node::SharedPtr &n_) {
   n_->get_parameter("ros2.topic.debug.pathInfo", topics_["pathInfo"]);
 
   std::string map_config_name;
+  std::string map_config_path;
   n_->get_parameter("mapConfig", map_config_name);
-  std::string map_config_path =
-      std::string(TRG_ROS_DIR) + "/../config/" + map_config_name + ".yaml";
+  n_->get_parameter("mapConfigPath", map_config_path);
+  if (map_config_path.empty()) {
+    map_config_path = std::string(TRG_ROS_DIR) + "/../config/" + map_config_name + ".yaml";
+  }
   if (!std::filesystem::exists(map_config_path)) {
     print_error("Map config file does not exist: " + map_config_path);
     exit(1);
@@ -190,8 +220,81 @@ void ROS2Node::cbGoal(const std::shared_ptr<const ROS2Types::Pose> &msg) {
                                                    msg->pose.orientation.z);
     TRGPlanner::goal_state_.init = true;
     TRGPlanner::flag_.goalIn     = true;
-    print("Goal received", TRGPlanner::param_.isVerbose);
   }
+  has_goal_ = true;
+  Eigen::Vector3f curr_pose;
+  Eigen::Vector4f curr_quat;
+  bool            pose_ready = false;
+  {
+    std::lock_guard<std::mutex> odom_lock(TRGPlanner::mtx.odom);
+    pose_ready = TRGPlanner::flag_.poseIn;
+    curr_pose  = TRGPlanner::state_.pose3d;
+    curr_quat  = TRGPlanner::state_.quat;
+  }
+  {
+    std::lock_guard<std::mutex> replan_lock(replan_mtx_);
+    if (pose_ready) {
+      setReplanReferenceLocked(curr_pose, curr_quat);
+    } else {
+      replan_reference_set_ = false;
+    }
+    last_replan_request_time_ = n_->now();
+  }
+  print("Goal received", TRGPlanner::param_.isVerbose);
+}
+
+void ROS2Node::replanTimer() {
+  if (!param_.replan_enabled || !TRGPlanner::flag_.graphInit || !has_goal_) {
+    return;
+  }
+
+  const rclcpp::Time now = n_->now();
+  {
+    std::lock_guard<std::mutex> replan_lock(replan_mtx_);
+    if (last_replan_request_time_.nanoseconds() > 0 &&
+        (now - last_replan_request_time_).seconds() < param_.replan_min_interval) {
+      return;
+    }
+  }
+
+  Eigen::Vector3f curr_pose;
+  Eigen::Vector4f curr_quat;
+  {
+    std::lock_guard<std::mutex> lock(TRGPlanner::mtx.odom);
+    if (!TRGPlanner::flag_.poseIn) {
+      return;
+    }
+    curr_pose = TRGPlanner::state_.pose3d;
+    curr_quat = TRGPlanner::state_.quat;
+  }
+
+  std::lock_guard<std::mutex> replan_lock(replan_mtx_);
+  if (!replan_reference_set_) {
+    setReplanReferenceLocked(curr_pose, curr_quat);
+    last_replan_request_time_ = now;
+    return;
+  }
+
+  const float translation = (curr_pose.head(2) - replan_reference_pose_.head(2)).norm();
+  const float yaw_delta =
+      std::abs(shortestYawDiff(yawFromQuat(curr_quat), yawFromQuat(replan_reference_quat_)));
+
+  if (translation < param_.replan_min_translation && yaw_delta < param_.replan_min_yaw) {
+    return;
+  }
+
+  {
+    std::lock_guard<std::mutex> goal_lock(TRGPlanner::mtx.goal);
+    if (TRGPlanner::flag_.goalIn) {
+      return;
+    }
+    TRGPlanner::flag_.goalIn = true;
+  }
+  setReplanReferenceLocked(curr_pose, curr_quat);
+  last_replan_request_time_ = now;
+  print_warning("Periodic replan requested by odometry delta: translation=" +
+                    std::to_string(translation) + " m, yaw=" + std::to_string(yaw_delta) + " rad",
+                TRGPlanner::param_.isVerbose);
 }
 
 void ROS2Node::publishTimer() {
@@ -339,4 +442,28 @@ void ROS2Node::vizGraph(std::string                                          typ
   }
   pub->publish(graph_marker);
   TRGPlanner::trg_->unlockGraph();
+}
+
+float ROS2Node::yawFromQuat(const Eigen::Vector4f &quat) const {
+  Eigen::Quaternionf q(quat[0], quat[1], quat[2], quat[3]);
+  const Eigen::Matrix3f rot = q.normalized().toRotationMatrix();
+  return std::atan2(rot(1, 0), rot(0, 0));
+}
+
+float ROS2Node::shortestYawDiff(float lhs, float rhs) const {
+  float diff = lhs - rhs;
+  while (diff > static_cast<float>(M_PI)) {
+    diff -= static_cast<float>(2.0 * M_PI);
+  }
+  while (diff < static_cast<float>(-M_PI)) {
+    diff += static_cast<float>(2.0 * M_PI);
+  }
+  return diff;
+}
+
+void ROS2Node::setReplanReferenceLocked(const Eigen::Vector3f &pose,
+                                        const Eigen::Vector4f &quat) {
+  replan_reference_pose_ = pose;
+  replan_reference_quat_ = quat;
+  replan_reference_set_  = true;
 }
