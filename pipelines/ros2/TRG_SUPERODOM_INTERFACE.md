@@ -40,6 +40,18 @@ ros2 launch trg_planner_ros trg_planner_wMap.py \
   rviz:=true
 ```
 
+Inside `/home/bichy/robocup_ws`, `rviz:=true` uses the workspace-level
+`bringup/rviz/robocup_navigation.rviz` if no map-specific RViz file exists.
+You can force a config explicitly:
+
+```bash
+ros2 launch trg_planner_ros trg_planner_wMap.py \
+  map:=superodom_k_rail \
+  params:=superodom_params.yaml \
+  rviz:=true \
+  rviz_config:=/home/bichy/robocup_ws/bringup/rviz/robocup_navigation.rviz
+```
+
 Send goals with RViz `2D Goal Pose`, which publishes:
 
 ```text
