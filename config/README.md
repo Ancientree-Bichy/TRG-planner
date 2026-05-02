@@ -45,6 +45,10 @@ trg:
   updateCollisionThreshold: 0.5
   safetyFactor: 3.0
   goalTolerance: 0.8
+boundary:
+  enabled: false
+  allowedAreaPath: ""
+  keepoutMargin: 0.0
 ```
 
 ### Parameter Descriptions
@@ -69,6 +73,21 @@ trg:
 | `trg.updateCollisionThreshold` | Threshold for updating collision in the TRG             |
 | `trg.safetyFactor`        | Safety factor applied during the planning process            |
 | `trg.goalTolerance`       | Tolerance for goal reaching in the planning process          |
+| `boundary.enabled`        | Enable allowed-area polygon constraint                       |
+| `boundary.allowedAreaPath`| YAML file containing `allowed_area` points                   |
+| `boundary.keepoutMargin`  | Optional extra inside-boundary margin in meters              |
+
+Allowed-area YAML:
+
+```yaml
+frame_id: map
+keepout_margin: 0.0
+allowed_area:
+  - {x: 0.0, y: 0.0}
+  - {x: 4.0, y: 0.0}
+  - {x: 4.0, y: 2.0}
+  - {x: 0.0, y: 2.0}
+```
 
 ______________________________________________________________________
 

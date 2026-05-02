@@ -36,6 +36,11 @@ void TRGPlanner::init() {
     exit(1);
   }
 
+  if (param_.boundaryEnabled) {
+    trg_->setAllowedArea(
+        param_.boundaryPolygon, param_.boundaryKeepoutMargin, param_.boundaryEnabled);
+  }
+
   //// Load prebuilt map
   if (param_.isPreMap) {
     cs_.preMapPtr.reset(new pcl::PointCloud<PtsDefault>());
@@ -93,10 +98,50 @@ void TRGPlanner::loadPrebuiltMap() {
   print("Prebuilt map is loaded");
 }
 
+void TRGPlanner::loadAllowedArea() {
+  if (!param_.boundaryEnabled) {
+    return;
+  }
+
+  if (param_.boundaryPath.empty()) {
+    print_error("boundary.allowedAreaPath is empty while boundary.enabled is true");
+    exit(1);
+  }
+
+  YAML::Node boundary = YAML::LoadFile(param_.boundaryPath);
+  YAML::Node points   = boundary["allowed_area"];
+  if (!points) {
+    points = boundary["allowedArea"];
+  }
+  if (!points || !points.IsSequence() || points.size() < 3) {
+    print_error("Allowed area file must contain at least 3 points under allowed_area");
+    exit(1);
+  }
+
+  param_.boundaryPolygon.clear();
+  for (const auto& point : points) {
+    if (!point["x"] || !point["y"]) {
+      print_error("Allowed area points must contain x and y fields");
+      exit(1);
+    }
+    param_.boundaryPolygon.emplace_back(point["x"].as<float>(), point["y"].as<float>());
+  }
+
+  if (boundary["keepout_margin"]) {
+    param_.boundaryKeepoutMargin = boundary["keepout_margin"].as<float>();
+  } else if (boundary["keepoutMargin"]) {
+    param_.boundaryKeepoutMargin = boundary["keepoutMargin"].as<float>();
+  }
+
+  print("Allowed area loaded: " + std::to_string(param_.boundaryPolygon.size()) + " points from " +
+        param_.boundaryPath);
+}
+
 void TRGPlanner::setParams(const std::string& config_path) {
   print("Loading config from: " + config_path);
 
   YAML::Node config = YAML::LoadFile(config_path);
+  std::filesystem::path config_dir = std::filesystem::path(config_path).parent_path();
 
   param_.isVerbose = config["isVerbose"].as<bool>(true);
 
@@ -120,6 +165,34 @@ void TRGPlanner::setParams(const std::string& config_path) {
   param_.updateCollisionThreshold = config["trg"]["updateCollisionThreshold"].as<float>(0.2f);
   param_.safetyFactor             = config["trg"]["safetyFactor"].as<float>(1.0f);
   param_.goal_tolerance           = config["trg"]["goalTolerance"].as<float>(0.8f);
+
+  if (config["boundary"]) {
+    param_.boundaryEnabled =
+        config["boundary"]["enabled"].as<bool>(param_.boundaryEnabled);
+    param_.boundaryPath =
+        config["boundary"]["allowedAreaPath"].as<std::string>(param_.boundaryPath);
+    if (param_.boundaryPath.empty()) {
+      param_.boundaryPath =
+          config["boundary"]["allowed_area_path"].as<std::string>(param_.boundaryPath);
+    }
+    param_.boundaryKeepoutMargin =
+        config["boundary"]["keepoutMargin"].as<float>(param_.boundaryKeepoutMargin);
+    param_.boundaryKeepoutMargin =
+        config["boundary"]["keepout_margin"].as<float>(param_.boundaryKeepoutMargin);
+  }
+
+  if (param_.boundaryEnabled) {
+    std::filesystem::path boundary_path(param_.boundaryPath);
+    if (!boundary_path.is_absolute()) {
+      boundary_path = config_dir / boundary_path;
+    }
+    if (!std::filesystem::exists(boundary_path)) {
+      print_error("Allowed area file does not exist: " + boundary_path.string());
+      exit(1);
+    }
+    param_.boundaryPath = boundary_path.string();
+    loadAllowedArea();
+  }
 }
 
 void TRGPlanner::runGraphFSM() {
@@ -346,6 +419,11 @@ void TRGPlanner::setGoal(const Eigen::Vector3f& pose,
                          const Eigen::Vector4f& quat = Eigen::Vector4f(1, 0, 0, 0)) {
   if (!flag_.graphInit) {
     print_error("Graph is not initialized");
+    return;
+  }
+  Eigen::Vector2f goal2d = pose.head(2);
+  if (trg_ != nullptr && !trg_->isWithinAllowedArea(goal2d)) {
+    print_error("Goal is outside allowed area");
     return;
   }
   std::lock_guard<std::mutex> lock(mtx.goal);

@@ -210,6 +210,11 @@ void ROS2Node::cbGoal(const std::shared_ptr<const ROS2Types::Pose> &msg) {
     print_error("Graph is not initialized");
     return;
   }
+  Eigen::Vector2f goal2d(msg->pose.position.x, msg->pose.position.y);
+  if (TRGPlanner::trg_ != nullptr && !TRGPlanner::trg_->isWithinAllowedArea(goal2d)) {
+    print_error("Goal is outside allowed area");
+    return;
+  }
   {
     std::lock_guard<std::mutex> lock(TRGPlanner::mtx.goal);
     TRGPlanner::goal_state_.pose =

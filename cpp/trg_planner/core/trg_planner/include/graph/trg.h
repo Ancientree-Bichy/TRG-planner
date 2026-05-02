@@ -86,6 +86,11 @@ class TRG {
                     float&                        avg_risk);
   void refinePath(std::vector<Eigen::Vector3f>& in_path, std::vector<Eigen::Vector3f>& out_path);
 
+  void setAllowedArea(const std::vector<Eigen::Vector2f>& polygon,
+                      float                               keepout_margin,
+                      bool                                enabled);
+  bool isWithinAllowedArea(const Eigen::Vector2f& pos2d) const;
+
   void resetGraph(std::string type);
   void resetMap(std::string type);
 
@@ -128,6 +133,13 @@ class TRG {
   std::random_device                    rd_;
   std::mt19937                          gen_;
   std::uniform_real_distribution<float> distr_;
+
+  bool                         allowed_area_enabled_ = false;
+  float                        allowed_area_keepout_margin_ = 0.0f;
+  std::vector<Eigen::Vector2f> allowed_area_polygon_;
+
+  bool  isInsideAllowedAreaPolygon(const Eigen::Vector2f& pos2d) const;
+  float distanceToAllowedAreaBoundary(const Eigen::Vector2f& pos2d) const;
 
   struct Param {
     bool  isVerbose                  = true;

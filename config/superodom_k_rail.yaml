@@ -20,3 +20,7 @@ trg:
   updateCollisionThreshold: 0.5
   safetyFactor: 3.0
   goalTolerance: 0.8
+boundary:
+  enabled: false
+  allowedAreaPath: ""
+  keepoutMargin: 0.0

@@ -174,6 +174,9 @@ void TRG::wireEdge(Node* node1, Node* node2, std::string type) {
   float ds = param_.robot_size * 0.5;
   for (float i = 0; i < dist; i += ds) {
     Eigen::Vector2f pos = node1->pos_.head(2) + i * dir;
+    if (!this->isWithinAllowedArea(pos)) {
+      return;
+    }
     if (this->isCollision(pos, type, param_.collision_threshold)) {
       return;
     }
@@ -500,6 +503,15 @@ bool TRG::planSafePath(Eigen::Vector2f&              start2d,
                        float&                        avg_risk) {
   // print("TRG planSafePath", param_.isVerbose);
   std::lock_guard<std::mutex> lock(mtx.graph);
+  Eigen::Vector2f goal2d = goal_pose.head(2);
+  if (!this->isWithinAllowedArea(start2d)) {
+    print_error("Start pose is outside allowed area");
+    return false;
+  }
+  if (!this->isWithinAllowedArea(goal2d)) {
+    print_error("Goal pose is outside allowed area");
+    return false;
+  }
   this->setGoal(goal_pose);
 
   trgStruct& global_graph = *trgMap_["global"];
@@ -635,7 +647,79 @@ void TRG::resetMap(std::string type) {
   graph.cloud_map->clear();
 }
 
+void TRG::setAllowedArea(const std::vector<Eigen::Vector2f>& polygon,
+                         float                               keepout_margin,
+                         bool                                enabled) {
+  std::lock_guard<std::mutex> lock(mtx.graph);
+  allowed_area_polygon_        = polygon;
+  allowed_area_keepout_margin_ = std::max(0.0f, keepout_margin);
+  allowed_area_enabled_        = enabled && allowed_area_polygon_.size() >= 3;
+
+  if (allowed_area_enabled_) {
+    print("Allowed area enabled with " + std::to_string(allowed_area_polygon_.size()) +
+          " points and keepout margin " + std::to_string(allowed_area_keepout_margin_) + " m");
+  } else {
+    print("Allowed area disabled", param_.isVerbose);
+  }
+}
+
+bool TRG::isWithinAllowedArea(const Eigen::Vector2f& pos) const {
+  if (!allowed_area_enabled_) {
+    return true;
+  }
+  if (!isInsideAllowedAreaPolygon(pos)) {
+    return false;
+  }
+  if (allowed_area_keepout_margin_ > 0.0f &&
+      distanceToAllowedAreaBoundary(pos) < allowed_area_keepout_margin_) {
+    return false;
+  }
+  return true;
+}
+
+bool TRG::isInsideAllowedAreaPolygon(const Eigen::Vector2f& pos) const {
+  bool inside = false;
+  for (std::size_t i = 0, j = allowed_area_polygon_.size() - 1;
+       i < allowed_area_polygon_.size();
+       j = i++) {
+    const Eigen::Vector2f& pi = allowed_area_polygon_[i];
+    const Eigen::Vector2f& pj = allowed_area_polygon_[j];
+    const bool crosses =
+        ((pi.y() > pos.y()) != (pj.y() > pos.y())) &&
+        (pos.x() < (pj.x() - pi.x()) * (pos.y() - pi.y()) / (pj.y() - pi.y() + EPS) + pi.x());
+    if (crosses) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+float TRG::distanceToAllowedAreaBoundary(const Eigen::Vector2f& pos) const {
+  if (allowed_area_polygon_.size() < 2) {
+    return std::numeric_limits<float>::infinity();
+  }
+
+  float min_dist = std::numeric_limits<float>::infinity();
+  for (std::size_t i = 0; i < allowed_area_polygon_.size(); ++i) {
+    const Eigen::Vector2f& a  = allowed_area_polygon_[i];
+    const Eigen::Vector2f& b  = allowed_area_polygon_[(i + 1) % allowed_area_polygon_.size()];
+    const Eigen::Vector2f  ab = b - a;
+    const float            denom = ab.squaredNorm();
+    float                  t = 0.0f;
+    if (denom > EPS) {
+      t = std::max(0.0f, std::min(1.0f, (pos - a).dot(ab) / denom));
+    }
+    const Eigen::Vector2f projection = a + t * ab;
+    min_dist = std::min(min_dist, (pos - projection).norm());
+  }
+  return min_dist;
+}
+
 bool TRG::isCollision(Eigen::Vector2f& pos, std::string type, float threshold = 0.1) {
+  if (!this->isWithinAllowedArea(pos)) {
+    return true;
+  }
+
   trgStruct& graph = *trgMap_[type];
   kdres*     res   = kd_nearest_range2(graph.map_tree, pos.x(), pos.y(), param_.robot_size);
   if (kd_res_size(res) == 0) {

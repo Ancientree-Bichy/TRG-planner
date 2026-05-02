@@ -13,6 +13,9 @@ This repository copy is used inside the RoboCup workspace as the terrain-aware g
   - goal pose: `/goal_pose`
   - prebuilt map visualization: `/trg/output/prebuilt_map`
   - output path: `/trg/output/path`
+- TRG can optionally load a RoboCup allowed-area YAML through the map config
+  `boundary` section. When enabled, graph samples, edges, start poses, and goals
+  outside the polygon are rejected.
 - In this workspace, TRG is used as a global planner. It is not the path follower or local controller.
 - The workspace-level RoboCup RViz config is
   `/home/bichy/robocup_ws/bringup/rviz/robocup_navigation.rviz`. Prefer it for
@@ -30,6 +33,9 @@ This repository copy is used inside the RoboCup workspace as the terrain-aware g
   the start state. The RoboCup `run_trg_follower_sim.sh` path supplies fake
   `/laser_odometry` from the follower simulator and should not require
   `/laser_cloud_map` unless online update is explicitly enabled.
+- Keep allowed-area logic independent from the terrain map: the prior map
+  describes geometry/risk, while the boundary YAML describes competition
+  legality.
 - Avoid new dependencies unless they are necessary for Humble compatibility.
 
 ## Verification

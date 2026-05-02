@@ -69,6 +69,7 @@ class TRGPlanner {
 
   void init();
   void loadPrebuiltMap();
+  void loadAllowedArea();
   void setParams(const std::string& config_path);
 
   void runGraphFSM();
@@ -133,6 +134,12 @@ class TRGPlanner {
     float       updateCollisionThreshold;
     float       safetyFactor;
     float       goal_tolerance;
+
+    /// Navigation boundary parameters
+    bool                         boundaryEnabled = false;
+    std::string                  boundaryPath;
+    float                        boundaryKeepoutMargin = 0.0f;
+    std::vector<Eigen::Vector2f> boundaryPolygon;
   } param_;
 
   /// TRG
