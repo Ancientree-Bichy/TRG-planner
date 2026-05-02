@@ -14,6 +14,8 @@ trg:
   expandDist: 0.4
   robotSize: 0.3
   sampleNum: 15
+  randomSeed: -1
+  deterministicSampling: false
   heightThreshold: 0.15
   collisionThreshold: 0.1
   updateCollisionThreshold: 0.1

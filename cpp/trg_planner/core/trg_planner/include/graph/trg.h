@@ -56,7 +56,9 @@ class TRG {
       float collision_threshold,
       float update_collision_threshold,
       float safety_factor,
-      float goal_tolerance);
+      float goal_tolerance,
+      int   random_seed,
+      bool  deterministic_sampling);
   virtual ~TRG() = default;
 
   void initGraph(bool isPreMap, Eigen::Vector3f start3d);
@@ -146,6 +148,8 @@ class TRG {
     float expand_dist                = 0.5;
     float robot_size                 = 0.5;
     int   sample_num                 = 20;
+    int   random_seed                = -1;
+    bool  deterministic_sampling     = false;
     float height_threshold           = 0.5;
     float collision_threshold        = 0.5;
     float update_collision_threshold = 0.5;

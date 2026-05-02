@@ -40,6 +40,8 @@ trg:
   expandDist: 0.6
   robotSize: 0.3
   sampleNum: 7
+  randomSeed: -1
+  deterministicSampling: false
   heightThreshold: 0.16
   collisionThreshold: 0.1
   updateCollisionThreshold: 0.5
@@ -68,6 +70,8 @@ boundary:
 | `trg.expandDist`          | Distance used to expand the TRG                              |
 | `trg.robotSize`           | Size of the robot used in the TRG                            |
 | `trg.sampleNum`           | Number of samples to generate for the TRG                    |
+| `trg.randomSeed`          | Fixed seed for repeatable graph sampling; use `-1` for random startup seed |
+| `trg.deterministicSampling` | Use fixed angular samples per node instead of random angular samples |
 | `trg.heightThreshold`     | Threshold value for height in the TRG                        |
 | `trg.collisionThreshold`  | Threshold for collision detection in the TRG                 |
 | `trg.updateCollisionThreshold` | Threshold for updating collision in the TRG             |

@@ -8,6 +8,25 @@
  */
 #include "trg_planner/include/graph/trg.h"
 
+#include <algorithm>
+#include <cstdint>
+
+namespace {
+constexpr float kTwoPi = 2.0f * static_cast<float>(M_PI);
+
+float deterministicAngleOffset(int node_id, int random_seed, int sample_num) {
+  const std::uint32_t seed = random_seed >= 0 ? static_cast<std::uint32_t>(random_seed) : 0U;
+  std::uint32_t value =
+      static_cast<std::uint32_t>(node_id) * 1103515245U + (seed + 1U) * 12345U;
+  value ^= value >> 16;
+  value *= 2246822519U;
+  value ^= value >> 13;
+  const float unit = static_cast<float>(value & 0x00ffffffU) /
+                     static_cast<float>(0x01000000U);
+  return unit * kTwoPi / static_cast<float>(std::max(1, sample_num));
+}
+}  // namespace
+
 TRG::TRG(bool  isVerbose,
          float expand_dist,
          float robot_size,
@@ -16,12 +35,17 @@ TRG::TRG(bool  isVerbose,
          float collision_threshold,
          float update_collision_threshold,
          float safety_factor,
-         float goal_tolerance)
-    : gen_(rd_()), distr_(0.0, 1.0) {
+         float goal_tolerance,
+         int   random_seed,
+         bool  deterministic_sampling)
+    : gen_(random_seed >= 0 ? static_cast<std::mt19937::result_type>(random_seed) : rd_()),
+      distr_(0.0, 1.0) {
   param_.isVerbose                  = isVerbose;
   param_.expand_dist                = expand_dist;
   param_.robot_size                 = robot_size;
   param_.sample_num                 = sample_num;
+  param_.random_seed                = random_seed;
+  param_.deterministic_sampling     = deterministic_sampling;
   param_.height_threshold           = height_threshold;
   param_.collision_threshold        = collision_threshold;
   param_.update_collision_threshold = update_collision_threshold;
@@ -60,7 +84,11 @@ void TRG::initGraph(bool isPreMap, Eigen::Vector3f start3d = Eigen::Vector3f::Ze
   this->expandGraph(graph.node_id - 1, graph.type);
   this->cleanGraph(false);
 
-  assert(graph.node_id == 1 && "Root node is not generated");
+  if (graph.nodes.empty()) {
+    print_error("TRG graph initialization produced no valid nodes");
+    print_error("Check that expandDist is larger than robotSize and that the initial pose is inside the map");
+    exit(1);
+  }
 }
 
 void TRG::loadPrebuiltGraph() {
@@ -277,21 +305,32 @@ void TRG::expandGraph(int ref_id, std::string type) {
 
     /// Sampling
     std::vector<Eigen::Vector2f> samples;
-    int                          max_trial_sample = 1000;
+    int                          max_trial_sample =
+        param_.deterministic_sampling ? param_.sample_num : 1000;
     int                          trial_sample     = 0;
     while (samples.size() < param_.sample_num) {
-      if (trial_sample > max_trial_sample) {
+      if (trial_sample >= max_trial_sample) {
         break;
       }
       // 0.75 param_.expand_dist ~ 1.25 param_.expand_dist
       // float expand_dist = 0.75 * param_.expand_dist + distr_(gen_) * (1.25 * param_.expand_dist -
       // 0.75 * param_.expand_dist); // 0.75 ~ 1.25
       float           expand_dist = param_.expand_dist;
-      float           angle       = distr_(gen_) * 2 * M_PI;
+      float           angle;
+      if (param_.deterministic_sampling) {
+        const float angle_step = kTwoPi / static_cast<float>(std::max(1, param_.sample_num));
+        angle = deterministicAngleOffset(node->id_, param_.random_seed, param_.sample_num) +
+                static_cast<float>(trial_sample) * angle_step;
+        trial_sample++;
+      } else {
+        angle = distr_(gen_) * kTwoPi;
+      }
       Eigen::Vector2f sample =
           node->pos_.head(2) + Eigen::Vector2f(expand_dist * cos(angle), expand_dist * sin(angle));
       if (this->isCollision(sample, graph.type, param_.collision_threshold)) {
-        trial_sample++;
+        if (!param_.deterministic_sampling) {
+          trial_sample++;
+        }
         continue;
       }
       samples.push_back(sample);
@@ -435,6 +474,12 @@ void TRG::setGoal(Eigen::Vector3f& goal) {
 
   goal_.pose3d = goal;
   goal_.pose2d = goal.head(2);
+  goal_.node   = nullptr;
+  goal_.isKnown = false;
+
+  if (global_graph.nodes.empty()) {
+    return;
+  }
 
   kdres* res = kd_nearest_range2(global_graph.node_tree, goal.x(), goal.y(), param_.robot_size);
   if (kd_res_size(res) == 0) {
@@ -515,9 +560,22 @@ bool TRG::planSafePath(Eigen::Vector2f&              start2d,
   this->setGoal(goal_pose);
 
   trgStruct& global_graph = *trgMap_["global"];
+  if (global_graph.nodes.empty()) {
+    print_error("Cannot plan path: TRG graph is empty");
+    return false;
+  }
 
   kdres* res        = kd_nearest2(global_graph.node_tree, start2d.x(), start2d.y());
   Node*  start_node = reinterpret_cast<Node*>(kd_res_item_data(res));
+  kd_res_free(res);
+  if (start_node == nullptr) {
+    print_error("Cannot plan path: no TRG node near start pose");
+    return false;
+  }
+  if (goal_.node == nullptr) {
+    print_error("Cannot plan path: no TRG node near goal pose");
+    return false;
+  }
 
   std::priority_queue<OptimizeNode*,
                       std::vector<OptimizeNode*>,
@@ -595,6 +653,11 @@ bool TRG::planSafePath(Eigen::Vector2f&              start2d,
 
 void TRG::refinePath(std::vector<Eigen::Vector3f>& in_path,
                      std::vector<Eigen::Vector3f>& out_path) {
+  if (in_path.size() < 2) {
+    out_path = in_path;
+    return;
+  }
+
   std::deque<Eigen::Vector3f> dense_path;
   int                         point_between = 1;
   for (int i = 0; i < in_path.size() - 1; ++i) {

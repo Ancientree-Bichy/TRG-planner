@@ -7,19 +7,21 @@ map:
   prebuiltMapPath: "/home/bichy/robocup_ws/SuperOdom/map_by_scanner/k-rail.pcd"
   waitPoseBeforeInit: true
   isVoxelize: true
-  voxelSize: 0.1
+  voxelSize: 0.02
 trg:
   isPrebuiltTRG: false
   prebuiltTRGPath: ""
-  isUpdate: true
-  expandDist: 0.6
-  robotSize: 0.3
-  sampleNum: 10
-  heightThreshold: 0.16
+  isUpdate: false
+  expandDist: 0.65
+  robotSize: 0.5
+  sampleNum: 20
+  randomSeed: 7
+  deterministicSampling: true
+  heightThreshold: 0.4
   collisionThreshold: 0.1
   updateCollisionThreshold: 0.5
   safetyFactor: 3.0
-  goalTolerance: 0.8
+  goalTolerance: 0.3
 boundary:
   enabled: false
   allowedAreaPath: ""

@@ -4,6 +4,7 @@ from pathlib import Path
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, LogInfo, OpaqueFunction
+from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 
@@ -66,6 +67,18 @@ def generate_launch_description():
         'rviz_config',
         default_value='',
         description='Explicit RViz config file. Defaults to map RViz, then RoboCup workspace RViz.')
+    pose_bridge_arg = DeclareLaunchArgument(
+        'pose_bridge',
+        default_value='true',
+        description='Bridge RViz /initialpose to the TRG odometry input for TRG-only debugging.')
+    pose_frame_arg = DeclareLaunchArgument(
+        'pose_frame',
+        default_value='map',
+        description='Frame id used by the RViz initial-pose odometry bridge.')
+    odom_topic_arg = DeclareLaunchArgument(
+        'odom_topic',
+        default_value='/laser_odometry',
+        description='Odometry topic published by the RViz initial-pose bridge.')
 
     # Get the path to the configuration files
     package_share_directory = get_package_share_directory('trg_planner_ros')
@@ -85,12 +98,30 @@ def generate_launch_description():
                      ],
                      output='screen')
 
+    pose_bridge_node = Node(
+        package='trg_planner_ros',
+        executable='fake_pose_pub.py',
+        name='trg_rviz_pose_bridge',
+        condition=IfCondition(LaunchConfiguration('pose_bridge')),
+        parameters=[{
+            'frame_id': LaunchConfiguration('pose_frame'),
+            'odom_topic': LaunchConfiguration('odom_topic'),
+            'initialpose_topic': '/initialpose',
+            'goal_in_topic': '',
+            'goal_out_topic': '',
+        }],
+        output='screen')
+
     return LaunchDescription([
         rviz_arg,
         map_config_arg,
         params_arg,
         rviz_config_arg,
+        pose_bridge_arg,
+        pose_frame_arg,
+        odom_topic_arg,
         ros2_node,
+        pose_bridge_node,
         OpaqueFunction(function=_launch_rviz,
                        kwargs={'package_share_directory': package_share_directory}),
     ])

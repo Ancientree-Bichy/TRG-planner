@@ -63,6 +63,11 @@ install(TARGETS
     DESTINATION lib/${PROJECT_NAME}
 )
 
+install(PROGRAMS
+    ${CMAKE_CURRENT_LIST_DIR}/scripts/fake_pose_pub.py
+    DESTINATION lib/${PROJECT_NAME}
+)
+
 install(DIRECTORY
     launch
     config

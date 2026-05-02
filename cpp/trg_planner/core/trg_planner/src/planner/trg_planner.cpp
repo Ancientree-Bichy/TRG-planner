@@ -8,6 +8,8 @@
  */
 #include "trg_planner/include/planner/trg_planner.h"
 
+#include <stdexcept>
+
 TRGPlanner::TRGPlanner() {}
 TRGPlanner::~TRGPlanner() {
   is_running.store(false);
@@ -29,7 +31,9 @@ void TRGPlanner::init() {
                                param_.collisionThreshold,
                                param_.updateCollisionThreshold,
                                param_.safetyFactor,
-                               param_.goal_tolerance);
+                               param_.goal_tolerance,
+                               param_.randomSeed,
+                               param_.deterministicSampling);
 
   if (trg_ == nullptr) {
     print_error("Failed to initialize TRG");
@@ -160,11 +164,40 @@ void TRGPlanner::setParams(const std::string& config_path) {
   param_.expandDist               = config["trg"]["expandDist"].as<float>(0.6f);
   param_.robotSize                = config["trg"]["robotSize"].as<float>(0.3f);
   param_.sampleNum                = config["trg"]["sampleNum"].as<int>(20);
+  param_.randomSeed               = config["trg"]["randomSeed"].as<int>(-1);
+  param_.deterministicSampling    = config["trg"]["deterministicSampling"].as<bool>(false);
   param_.heightThreshold          = config["trg"]["heightThreshold"].as<float>(0.15f);
   param_.collisionThreshold       = config["trg"]["collisionThreshold"].as<float>(0.2f);
   param_.updateCollisionThreshold = config["trg"]["updateCollisionThreshold"].as<float>(0.2f);
   param_.safetyFactor             = config["trg"]["safetyFactor"].as<float>(1.0f);
   param_.goal_tolerance           = config["trg"]["goalTolerance"].as<float>(0.8f);
+
+  auto fail_config = [](const std::string& msg) {
+    print_error(msg);
+    throw std::invalid_argument(msg);
+  };
+  if (param_.graph_rate <= 0.0f || param_.planning_rate <= 0.0f) {
+    fail_config("TRG timer rates must be positive");
+  }
+  if (param_.isVoxelize && param_.VoxelSize <= 0.0f) {
+    fail_config("map.voxelSize must be positive when map.isVoxelize is true");
+  }
+  if (param_.expandDist <= 0.0f || param_.robotSize <= 0.0f || param_.sampleNum <= 0) {
+    fail_config("TRG expandDist, robotSize, and sampleNum must be positive");
+  }
+  if (param_.expandDist <= param_.robotSize) {
+    fail_config("Invalid TRG parameters: trg.expandDist must be larger than trg.robotSize "
+                "(expandDist=" + std::to_string(param_.expandDist) +
+                ", robotSize=" + std::to_string(param_.robotSize) + ")");
+  }
+  if (param_.collisionThreshold < 0.0f || param_.collisionThreshold > 1.0f ||
+      param_.updateCollisionThreshold < 0.0f || param_.updateCollisionThreshold > 1.0f) {
+    fail_config("TRG collision thresholds must be in [0, 1]");
+  }
+  if (param_.heightThreshold <= 0.0f || param_.safetyFactor < 0.0f ||
+      param_.goal_tolerance <= 0.0f) {
+    fail_config("TRG heightThreshold and goalTolerance must be positive; safetyFactor must be non-negative");
+  }
 
   if (config["boundary"]) {
     param_.boundaryEnabled =

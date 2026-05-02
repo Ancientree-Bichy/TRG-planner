@@ -129,6 +129,8 @@ class TRGPlanner {
     float       expandDist;
     float       robotSize;
     int         sampleNum;
+    int         randomSeed = -1;
+    bool        deterministicSampling = false;
     float       heightThreshold;
     float       collisionThreshold;
     float       updateCollisionThreshold;

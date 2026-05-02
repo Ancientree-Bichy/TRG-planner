@@ -29,10 +29,17 @@ This repository copy is used inside the RoboCup workspace as the terrain-aware g
 - Keep ROS 2 pipeline changes compatible with both static prior-map use and prior-map-plus-online-update use.
 - Keep `trg_planner_wMap.py` compatible with explicit `rviz_config` and with the
   RoboCup workspace RViz fallback when a map-specific RViz file is absent.
+- For TRG-only RViz debugging, `trg_planner_wMap.py` starts the RViz initial-pose
+  bridge by default. RViz `2D Pose Estimate` publishes `/initialpose`, the bridge
+  converts it to `/laser_odometry`, and RViz `2D Goal Pose` publishes
+  `/goal_pose` directly to TRG.
 - For prior-map-only simulations, TRG still needs an odometry or pose input for
   the start state. The RoboCup `run_trg_follower_sim.sh` path supplies fake
   `/laser_odometry` from the follower simulator and should not require
   `/laser_cloud_map` unless online update is explicitly enabled.
+- For repeatable RoboCup prior-map tests, prefer `trg.deterministicSampling:
+  true` plus a fixed `trg.randomSeed`. Leave `randomSeed: -1` only when
+  intentionally testing stochastic sampling behavior.
 - Keep allowed-area logic independent from the terrain map: the prior map
   describes geometry/risk, while the boundary YAML describes competition
   legality.
