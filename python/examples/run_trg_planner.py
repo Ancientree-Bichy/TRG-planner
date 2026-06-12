@@ -17,30 +17,15 @@ class TRGRunner:
         self.args = args
         root_dir = os.path.dirname(
             os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        map_config_file = os.path.join(root_dir, 'config', args.map) + '.yaml'
+        if os.path.isabs(args.config):
+            map_config_file = args.config
+        else:
+            map_config_file = os.path.join(root_dir, 'config', args.config) + '.yaml'
         if not os.path.exists(map_config_file):
             raise FileNotFoundError(f'File {map_config_file} not found')
 
         self.sample_starts = []
         self.sample_goals = []
-        if args.map == 'indoor':
-            self.sample_starts = np.array([[3.27, 4.12, 0], [14.86, 50.61, 0],
-                                           [34.16, -6.32, 0], [63.33, 5.11, 0],
-                                           [48.03, 37.52, 0]])
-            self.sample_goals = np.array([[17.18, 0.29, 0], [23.9, 40.4, 0],
-                                          [43.00, -26.01,
-                                           0], [69.60, 19.02, 0],
-                                          [55.48, 54.97, 0]])
-        elif args.map == 'mountain':
-            self.sample_starts = np.array([[-7.22, -7.54,
-                                            0], [-2.07, -2.21, 0],
-                                           [13.04, -1.99,
-                                            0], [17.96, 17.69, 0],
-                                           [-6.56, 4.59, 0]])
-
-            self.sample_goals = np.array([[-9.97, 3.56, 0], [7.52, 1.44, 0],
-                                          [14.43, 6.87, 0], [9.49, 16.60, 0],
-                                          [3.11, -6.68, 0]])
 
         self.trg_planner = trg_planner.TRGPlanner()
         self.trg_planner.setParams(map_config_file)
@@ -204,10 +189,10 @@ class TRGRunner:
 
 def get_args():
     parser = argparse.ArgumentParser(description='TRG-planner Python Runner')
-    parser.add_argument('--map',
+    parser.add_argument('--config',
                         type=str,
-                        default='mountain',
-                        help='Configuration file to use')
+                        default='robocup_default',
+                        help='Generic TRG configuration stem or absolute YAML path')
     return parser.parse_args()
 
 

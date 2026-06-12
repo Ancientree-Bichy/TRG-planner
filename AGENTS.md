@@ -16,9 +16,14 @@ This repository copy is used inside the RoboCup workspace as the terrain-aware g
 - TRG can optionally load a RoboCup allowed-area YAML through the map config
   `boundary` section. When enabled, graph samples, edges, start poses, and goals
   outside the polygon are rejected.
+- Path search mode is selected in YAML with `trg.pathSearchMode`. Keep
+  `native` as the default for compatibility; use `trg_astar` for the
+  heading-aware C++ TRG-AStar search. In RoboCup configs, `trg_astar` also
+  enables the migrated Path_Planing_QRC rectangular body/footprint cost through
+  `trgAStar.footprintCostEnabled`.
 - In this workspace, TRG is used as a global planner. It is not the path follower or local controller.
 - The workspace-level RoboCup RViz config is
-  `/home/bichy/robocup_ws/bringup/rviz/robocup_navigation.rviz`. Prefer it for
+  `$ROBOCUP_WS/bringup/rviz/robocup_navigation.rviz`. Prefer it for
   SuperOdom/TRG/follower integration. Package-local RViz files are only for
   upstream demos or narrow TRG-only debugging.
 
@@ -27,8 +32,11 @@ This repository copy is used inside the RoboCup workspace as the terrain-aware g
 - Prefer runtime-configurable parameters and launch arguments over hardcoded map names or absolute scene paths.
 - Keep the C++ core usable outside ROS.
 - Keep ROS 2 pipeline changes compatible with both static prior-map use and prior-map-plus-online-update use.
+- Keep TRG source hyperparameters in `config/robocup_default.yaml`. Do not add
+  one YAML per scene or map; pass prior-map PCDs through `map_path:=...` or a
+  generated runtime `mapConfigPath`.
 - Keep `trg_planner_wMap.py` compatible with explicit `rviz_config` and with the
-  RoboCup workspace RViz fallback when a map-specific RViz file is absent.
+  RoboCup workspace RViz fallback when a config-specific RViz file is absent.
 - For TRG-only RViz debugging, `trg_planner_wMap.py` starts the RViz initial-pose
   bridge by default. RViz `2D Pose Estimate` publishes `/initialpose`, the bridge
   converts it to `/laser_odometry`, and RViz `2D Goal Pose` publishes
@@ -53,4 +61,4 @@ This repository copy is used inside the RoboCup workspace as the terrain-aware g
   - map config resolves correctly
   - the planner waits for pose when configured to do so
   - topic names match the integration contract
-  - workspace RViz fallback resolves for `superodom_k_rail` when `rviz:=true`
+  - workspace RViz fallback resolves for `config:=robocup_default` when `rviz:=true`

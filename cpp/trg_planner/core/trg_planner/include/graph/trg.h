@@ -9,6 +9,8 @@
 #ifndef CPP_TRG_PLANNER_CORE_TRG_PLANNER_INCLUDE_GRAPH_TRG_H_
 #define CPP_TRG_PLANNER_CORE_TRG_PLANNER_INCLUDE_GRAPH_TRG_H_
 
+#include <cstdint>
+
 #include "trg_planner/include/kdtree/kdtree.h"
 #include "trg_planner/include/utils/common.h"
 
@@ -30,6 +32,11 @@ class TRG {
     Frontier = 1,
   };
 
+  enum struct PathSearchMode {
+    Native   = 0,
+    TRGAStar = 1,
+  };
+
   struct Node {
     Node(int id, Eigen::Vector2f& pos2d, float z, NodeState state)
         : id_(id), pos_(Eigen::Vector3f(pos2d.x(), pos2d.y(), z)), state_(state) {}
@@ -47,6 +54,37 @@ class TRG {
     float         g_;
   };
 
+  struct TRGAStarConfig {
+    bool  fallback_to_native = true;
+    int   heading_bins       = 8;
+    float length_weight      = 1.0f;
+    float risk_weight        = 3.0f;
+    float climb_weight       = 0.35f;
+    float slope_weight       = 0.35f;
+    float turn_weight        = 0.2f;
+    float heuristic_weight   = 1.0f;
+    float length_scale_m     = 0.0f;
+    float climb_scale_m      = 0.3f;
+    float slope_scale_tan    = 0.7f;
+    float turn_scale         = 0.25f;
+    float max_edge_climb_m   = 0.0f;
+    float max_edge_slope_tan = 0.0f;
+
+    bool  footprint_cost_enabled     = false;
+    bool  footprint_reject_invalid   = false;
+    float robot_length_m             = 0.70f;
+    float robot_width_m              = 0.43f;
+    float max_body_height_diff_m     = 0.70f;
+    float max_body_tilt_deg          = 35.0f;
+    float max_interior_penetration_m = 0.30f;
+    float body_height_weight         = 0.35f;
+    float body_tilt_weight           = 0.35f;
+    float body_penetration_weight    = 0.25f;
+    float body_invalid_weight        = 4.0f;
+    float footprint_sample_step_m    = 0.05f;
+    float footprint_edge_band_m      = 0.06f;
+  };
+
  public:
   TRG(bool  isVerbose,
       float expand_dist,
@@ -61,7 +99,8 @@ class TRG {
       bool  deterministic_sampling);
   virtual ~TRG() = default;
 
-  void initGraph(bool isPreMap, Eigen::Vector3f start3d);
+  bool initGraph(bool isPreMap, Eigen::Vector3f start3d);
+  void setPathSearchConfig(PathSearchMode mode, const TRGAStarConfig& config);
 
   void loadPrebuiltGraph();
 
@@ -85,7 +124,10 @@ class TRG {
                     std::vector<Eigen::Vector3f>& out_path,
                     float&                        direct_dist,
                     float&                        path_length,
-                    float&                        avg_risk);
+                    float&                        avg_risk,
+                    float                         start_yaw = 0.0f,
+                    float                         goal_yaw = 0.0f,
+                    bool                          allow_goal_subgoal = false);
   void refinePath(std::vector<Eigen::Vector3f>& in_path, std::vector<Eigen::Vector3f>& out_path);
 
   void setAllowedArea(const std::vector<Eigen::Vector2f>& polygon,
@@ -155,7 +197,57 @@ class TRG {
     float update_collision_threshold = 0.5;
     float safety_factor              = 3.0;
     float goal_tolerance             = 0.2;
+    PathSearchMode path_search_mode  = PathSearchMode::Native;
+    TRGAStarConfig trg_astar;
   } param_;
+
+  bool planNativeAStarPathLocked(Eigen::Vector2f&              start2d,
+                                 Eigen::Vector3f&              goal_pose,
+                                 std::vector<Eigen::Vector3f>& out_path,
+                                 float&                        direct_dist,
+                                 float&                        path_length,
+                                 float&                        avg_risk,
+                                 bool                          allow_goal_subgoal);
+  bool planTRGAStarPathLocked(Eigen::Vector2f&              start2d,
+                              Eigen::Vector3f&              goal_pose,
+                              std::vector<Eigen::Vector3f>& out_path,
+                              float&                        direct_dist,
+                              float&                        path_length,
+                              float&                        avg_risk,
+                              float                         start_yaw,
+                              float                         goal_yaw,
+                              bool                          allow_goal_subgoal);
+  int   quantizeYawToHeading(float yaw, int heading_bins) const;
+  int   quantizeEdgeHeading(const Eigen::Vector2f& delta, int heading_bins) const;
+  float headingTurnSharpness(int from_heading, int to_heading, int heading_bins) const;
+  float computeTRGAStarEdgeCost(const Node& node,
+                                const Node& dst_node,
+                                const Edge& edge,
+                                int         prev_heading,
+                                int         edge_heading,
+                                int         goal_heading,
+                                bool        is_goal_transition) const;
+  struct FootprintPoseMetrics {
+    bool  feasible                   = false;
+    float front_back_diff_m          = 0.0f;
+    float left_right_tilt_deg        = 0.0f;
+    float max_interior_penetration_m = 0.0f;
+  };
+  struct FootprintEdgeMetrics {
+    float invalid_ratio          = 0.0f;
+    float front_back_ratio       = 0.0f;
+    float left_right_tilt_ratio  = 0.0f;
+    float penetration_ratio      = 0.0f;
+  };
+  bool sampleFootprintPoseMetrics(const Eigen::Vector2f& center,
+                                  const Eigen::Vector2f& heading_dir,
+                                  FootprintPoseMetrics&  metrics) const;
+  FootprintEdgeMetrics computeFootprintEdgeMetrics(const Node& node,
+                                                   const Node& dst_node,
+                                                   int         edge_heading) const;
+  std::uint64_t footprintEdgeCacheKey(int src_id, int dst_id, int heading_id) const;
+
+  mutable std::unordered_map<std::uint64_t, FootprintEdgeMetrics> footprint_edge_metric_cache_;
 
   struct Mutex {
     std::mutex graph;

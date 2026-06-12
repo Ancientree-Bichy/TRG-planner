@@ -77,4 +77,9 @@ install(DIRECTORY
     PATTERN "*.pyc" EXCLUDE
 )
 
+install(FILES
+    ${CMAKE_CURRENT_LIST_DIR}/../../config/robocup_default.yaml
+    DESTINATION share/${PROJECT_NAME}/config
+)
+
 ament_package()

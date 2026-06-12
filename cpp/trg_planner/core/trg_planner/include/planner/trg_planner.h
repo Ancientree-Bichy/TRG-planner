@@ -136,6 +136,8 @@ class TRGPlanner {
     float       updateCollisionThreshold;
     float       safetyFactor;
     float       goal_tolerance;
+    TRG::PathSearchMode pathSearchMode = TRG::PathSearchMode::Native;
+    TRG::TRGAStarConfig trgAStar;
 
     /// Navigation boundary parameters
     bool                         boundaryEnabled = false;

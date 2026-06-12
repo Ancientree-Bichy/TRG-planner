@@ -54,10 +54,11 @@ catkin build
 source devel/setup.bash
 ```
 
-Launch the ROS node using the following command:
+Launch the ROS node using the generic TRG hyperparameter config and inject the
+prior-map path at runtime:
 
 ```commandline
-roslaunch trg_planner_ros trg_planner_wMap.launch map:=indoor rviz:=true
+roslaunch trg_planner_ros trg_planner_wMap.launch map:=robocup_default rviz:=true
 ```
 
 To test path planning without external odometry modules, run `fake_pose_pub.py` in a separate termial
@@ -77,10 +78,14 @@ colcon build
 source install/setup.bash
 ```
 
-Launch the ROS node using the following command:
+Launch the ROS node using the generic TRG hyperparameter config and inject the
+prior-map path at runtime:
 
 ```commandline
-ros2 launch trg_planner_ros trg_planner_wMap.py map:=indoor rviz:=true
+ros2 launch trg_planner_ros trg_planner_wMap.py \
+  config:=robocup_default \
+  map_path:=/path/to/prior_map.pcd \
+  rviz:=true
 ```
 
 To test path planning without external odometry modules, run `fake_pose_pub.py` in a separate termial

@@ -19,9 +19,19 @@
 
 ______________________________________________________________________
 
-# Map Configuration
+# RoboCup TRG Configuration
 
-### Example Configuration
+Use one scene-independent hyperparameter file:
+
+```text
+config/robocup_default.yaml
+```
+
+Do not add one YAML per map or scene. The prior-map PCD path is injected at
+runtime by ROS launch (`map_path:=...`) or by the RoboCup bringup scripts, which
+write a run-specific snapshot under `run_output/<run_name>/`.
+
+### Baseline Configuration
 
 ```yaml
 isVerbose: false
@@ -30,23 +40,53 @@ timer:
   planningRate: 10.0
 map:
   isPrebuiltMap: true
-  prebuiltMapPath: "prebuilt_maps/sim_mountain_0.1.pcd"
-  isVoxelize: false
-  voxelSize: 0.1
+  prebuiltMapPath: ""
+  waitPoseBeforeInit: true
+  isVoxelize: true
+  voxelSize: 0.08
 trg:
   isPrebuiltTRG: false
-  prebuiltTRGPath: "prebuilt_graphs/predefined_trg_mountain.pcd"
+  prebuiltTRGPath: ""
   isUpdate: false
-  expandDist: 0.6
-  robotSize: 0.3
-  sampleNum: 7
-  randomSeed: -1
-  deterministicSampling: false
-  heightThreshold: 0.16
-  collisionThreshold: 0.1
+  expandDist: 0.65
+  robotSize: 0.32
+  sampleNum: 16
+  randomSeed: 7
+  deterministicSampling: true
+  heightThreshold: 0.30
+  collisionThreshold: 0.12
   updateCollisionThreshold: 0.5
   safetyFactor: 3.0
-  goalTolerance: 0.8
+  goalTolerance: 0.6
+  pathSearchMode: native
+trgAStar:
+  fallbackToNative: true
+  headingBins: 8
+  lengthWeight: 1.0
+  riskWeight: 3.0
+  climbWeight: 0.35
+  slopeWeight: 0.35
+  turnWeight: 0.2
+  heuristicWeight: 1.0
+  lengthScaleM: 0.65
+  climbScaleM: 0.30
+  slopeScaleTan: 0.7
+  turnScale: 0.25
+  maxEdgeClimbM: 0.0
+  maxEdgeSlopeTan: 0.0
+  footprintCostEnabled: true
+  footprintRejectInvalid: false
+  robotLengthM: 0.70
+  robotWidthM: 0.43
+  maxBodyHeightDiffM: 0.70
+  maxBodyTiltDeg: 35.0
+  maxInteriorPenetrationM: 0.30
+  bodyHeightWeight: 0.35
+  bodyTiltWeight: 0.35
+  bodyPenetrationWeight: 0.25
+  bodyInvalidWeight: 4.0
+  footprintSampleStepM: 0.05
+  footprintEdgeBandM: 0.06
 boundary:
   enabled: false
   allowedAreaPath: ""
@@ -61,7 +101,8 @@ boundary:
 | `timer.graphRate`         | Rate of Graph finite state machine (Hz)                      |
 | `timer.planningRate`      | Rate of Planning finite state machine (Hz)                   |
 | `map.isPrebuiltMap`       | Flag to indicate whether a prebuilt map is used              |
-| `map.prebuiltMapPath`     | Path to the prebuilt map file                                |
+| `map.prebuiltMapPath`     | Runtime prior-map PCD path; keep empty in the source template |
+| `map.waitPoseBeforeInit`  | Wait for odometry/pose before initializing a prebuilt-map graph |
 | `map.isVoxelize`          | Flag to indicate whether voxelization is applied to the map  |
 | `map.voxelSize`           | Size of each voxel in the voxelized map (if applicable)      |
 | `trg.isPrebuiltTRG`       | Flag to indicate whether a prebuilt TRG is used (TBU)        |
@@ -77,6 +118,22 @@ boundary:
 | `trg.updateCollisionThreshold` | Threshold for updating collision in the TRG             |
 | `trg.safetyFactor`        | Safety factor applied during the planning process            |
 | `trg.goalTolerance`       | Tolerance for goal reaching in the planning process          |
+| `trg.pathSearchMode`      | `native` keeps original TRG A*; `trg_astar` enables the migrated Path_Planing_QRC A* cost |
+| `trgAStar.fallbackToNative` | Fall back to native A* when TRG-AStar cannot find a path   |
+| `trgAStar.headingBins`    | Direction bins for heading-aware state expansion             |
+| `trgAStar.*Weight`        | Length, risk, climb, slope, turn, and heuristic cost weights |
+| `trgAStar.*Scale*`        | Normalization scales for length, climb, slope, and turn costs |
+| `trgAStar.maxEdgeClimbM`  | Optional hard per-edge climb limit; `0.0` disables it        |
+| `trgAStar.maxEdgeSlopeTan`| Optional hard per-edge slope tangent limit; `0.0` disables it |
+| `trgAStar.footprintCostEnabled` | Add rectangular body feasibility costs from `astar_go2w_rect.py` |
+| `trgAStar.footprintRejectInvalid` | Reject edges with invalid footprint samples instead of only penalizing them |
+| `trgAStar.robotLengthM` / `robotWidthM` | Rectangular body footprint dimensions used by the migrated cost |
+| `trgAStar.maxBodyHeightDiffM` | Front/rear corner-pair height-difference limit for footprint cost |
+| `trgAStar.maxBodyTiltDeg` | Left/right body tilt limit for footprint cost |
+| `trgAStar.maxInteriorPenetrationM` | Solid-body interior penetration limit for footprint cost |
+| `trgAStar.body*Weight`    | Penalty weights for body height, tilt, penetration, and invalid footprint ratio |
+| `trgAStar.footprintSampleStepM` | Along-edge sampling step for footprint metrics |
+| `trgAStar.footprintEdgeBandM` | Edge/corner band width used when sampling footprint support from the PCD |
 | `boundary.enabled`        | Enable allowed-area polygon constraint                       |
 | `boundary.allowedAreaPath`| YAML file containing `allowed_area` points                   |
 | `boundary.keepoutMargin`  | Optional extra inside-boundary margin in meters              |

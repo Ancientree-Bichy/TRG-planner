@@ -21,7 +21,18 @@ PYBIND11_MODULE(trg_planner, m) {
   m.attr("__version__") = "1.0.0";
 
   py::class_<TRG, std::shared_ptr<TRG>>(m, "TRG")
-      .def(py::init<bool, float, float, int, float, float, float, float, float>())
+      .def(py::init<bool, float, float, int, float, float, float, float, float, int, bool>(),
+           py::arg("isVerbose"),
+           py::arg("expand_dist"),
+           py::arg("robot_size"),
+           py::arg("sample_num"),
+           py::arg("height_threshold"),
+           py::arg("collision_threshold"),
+           py::arg("update_collision_threshold"),
+           py::arg("safety_factor"),
+           py::arg("goal_tolerance"),
+           py::arg("random_seed") = -1,
+           py::arg("deterministic_sampling") = false)
       .def("getGraphCopy", &TRG::getGraphCopy, "Get the graph", py::arg("type"));
 
   py::class_<TRG::Edge>(m, "Edge")

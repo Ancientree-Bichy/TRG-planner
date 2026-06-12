@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <launch>
     <arg name="rviz" default="true"/>
-    <arg name="map" default="mountain"/>
+    <arg name="map" default="robocup_default"/>
 
     <rosparam command="load" file="$(find trg_planner_ros)/ros1/config/ros1_params.yaml" />
     <rosparam command="load" file="$(find trg_planner_ros)/../config/$(arg map).yaml" />

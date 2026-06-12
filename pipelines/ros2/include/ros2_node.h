@@ -40,6 +40,7 @@ class ROS2Node : public TRGPlanner {
   struct Debug {
     rclcpp::Publisher<ROS2Types::MarkerArray>::SharedPtr global_trg_;
     rclcpp::Publisher<ROS2Types::MarkerArray>::SharedPtr local_trg_;
+    rclcpp::Publisher<ROS2Types::MarkerArray>::SharedPtr allowed_area_;
     rclcpp::Publisher<ROS2Types::PointCloud>::SharedPtr  obs_map_;
     rclcpp::Publisher<ROS2Types::FloatArray>::SharedPtr  path_info_;
   } debug;
@@ -79,6 +80,7 @@ class ROS2Node : public TRGPlanner {
   } tf_cache;
 
   void vizGraph(std::string type, rclcpp::Publisher<ROS2Types::MarkerArray>::SharedPtr pub);
+  void publishAllowedAreaMarker();
   float yawFromQuat(const Eigen::Vector4f &quat) const;
   float shortestYawDiff(float lhs, float rhs) const;
   void  setReplanReferenceLocked(const Eigen::Vector3f &pose, const Eigen::Vector4f &quat);

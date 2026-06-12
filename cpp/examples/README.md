@@ -65,8 +65,7 @@ make -j 48
 ### Example A. TRG initailization time test
 
 ```commandline
-./build/run_trg_planner {map_config_name}
-./build/run_trg_planner indoor
+./build/run_trg_planner robocup_default
 ```
 
 **Result**

@@ -64,13 +64,13 @@ pip3 install -e .
 Run `examples/run_trg_planner.py` following template:
 
 ```commandline
-python3 python/examples/run_trg_planner.py --map indoor
+python3 python/examples/run_trg_planner.py --config robocup_default
 ```
 
 #### Result
 
 <details>
-  <summary><strong>Indoor Environment</a></strong></summary>
+  <summary><strong>Example Environment</a></strong></summary>
 
 ![Image](https://github.com/user-attachments/assets/6ab45f21-058d-4da5-8b3c-c55406156df6)
 ![Image](https://github.com/user-attachments/assets/6bdf5f52-a9b6-4c3c-ab94-00c45c4be38f)
@@ -81,7 +81,7 @@ python3 python/examples/run_trg_planner.py --map indoor
 </details>
 
 <details>
-  <summary><strong>Mountain Environment</a></strong></summary>
+  <summary><strong>Example Environment</a></strong></summary>
 
 ![Image](https://github.com/user-attachments/assets/d59a6ec3-970b-4fe9-82d6-ef804c1c61de)
 ![Image](https://github.com/user-attachments/assets/ca37a86d-4ccd-4949-b09b-9edfd6dc2895)

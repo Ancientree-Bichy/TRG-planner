@@ -1,6 +1,109 @@
 #include "ros2_node.h"
 
+#include <array>
 #include <cmath>
+#include <filesystem>
+#include <numeric>
+
+namespace {
+constexpr float kMarkerZ = 0.02f;
+constexpr float kEarEps  = 1e-5f;
+
+float signedPolygonArea(const std::vector<Eigen::Vector2f> &points) {
+  float area = 0.0f;
+  for (std::size_t i = 0; i < points.size(); ++i) {
+    const Eigen::Vector2f &a = points[i];
+    const Eigen::Vector2f &b = points[(i + 1) % points.size()];
+    area += a.x() * b.y() - b.x() * a.y();
+  }
+  return 0.5f * area;
+}
+
+float cross2d(const Eigen::Vector2f &a, const Eigen::Vector2f &b, const Eigen::Vector2f &c) {
+  const Eigen::Vector2f ab = b - a;
+  const Eigen::Vector2f ac = c - a;
+  return ab.x() * ac.y() - ab.y() * ac.x();
+}
+
+bool pointInTriangle(const Eigen::Vector2f &p,
+                     const Eigen::Vector2f &a,
+                     const Eigen::Vector2f &b,
+                     const Eigen::Vector2f &c) {
+  const float c1 = cross2d(a, b, p);
+  const float c2 = cross2d(b, c, p);
+  const float c3 = cross2d(c, a, p);
+  const bool  has_neg = c1 < -kEarEps || c2 < -kEarEps || c3 < -kEarEps;
+  const bool  has_pos = c1 > kEarEps || c2 > kEarEps || c3 > kEarEps;
+  return !(has_neg && has_pos);
+}
+
+std::vector<std::array<int, 3>> triangulatePolygon(const std::vector<Eigen::Vector2f> &points) {
+  std::vector<std::array<int, 3>> triangles;
+  if (points.size() < 3) {
+    return triangles;
+  }
+  if (points.size() == 3) {
+    triangles.push_back({0, 1, 2});
+    return triangles;
+  }
+
+  std::vector<int> indices(points.size());
+  std::iota(indices.begin(), indices.end(), 0);
+  const bool ccw = signedPolygonArea(points) >= 0.0f;
+
+  while (indices.size() > 3) {
+    bool clipped = false;
+    for (std::size_t i = 0; i < indices.size(); ++i) {
+      const int prev = indices[(i + indices.size() - 1) % indices.size()];
+      const int curr = indices[i];
+      const int next = indices[(i + 1) % indices.size()];
+
+      const float turn = cross2d(points[prev], points[curr], points[next]);
+      if ((ccw && turn <= kEarEps) || (!ccw && turn >= -kEarEps)) {
+        continue;
+      }
+
+      bool contains_other = false;
+      for (const int candidate : indices) {
+        if (candidate == prev || candidate == curr || candidate == next) {
+          continue;
+        }
+        if (pointInTriangle(points[candidate], points[prev], points[curr], points[next])) {
+          contains_other = true;
+          break;
+        }
+      }
+      if (contains_other) {
+        continue;
+      }
+
+      triangles.push_back({prev, curr, next});
+      indices.erase(indices.begin() + static_cast<std::ptrdiff_t>(i));
+      clipped = true;
+      break;
+    }
+
+    if (!clipped) {
+      triangles.clear();
+      for (std::size_t i = 1; i + 1 < points.size(); ++i) {
+        triangles.push_back({0, static_cast<int>(i), static_cast<int>(i + 1)});
+      }
+      return triangles;
+    }
+  }
+
+  triangles.push_back({indices[0], indices[1], indices[2]});
+  return triangles;
+}
+
+geometry_msgs::msg::Point makePoint(float x, float y, float z) {
+  geometry_msgs::msg::Point point;
+  point.x = x;
+  point.y = y;
+  point.z = z;
+  return point;
+}
+}  // namespace
 
 ROS2Node::ROS2Node(const rclcpp::Node::SharedPtr &node) : n_(node) {
   getParams(n_);
@@ -23,12 +126,15 @@ ROS2Node::ROS2Node(const rclcpp::Node::SharedPtr &node) : n_(node) {
   pub.goal_    = n_->create_publisher<ROS2Types::PointCloud>(topics_["outGoal"], 1);
   pub.path_    = n_->create_publisher<ROS2Types::Path>(topics_["path"], 1);
 
-  debug.global_trg_ = n_->create_publisher<ROS2Types::MarkerArray>(topics_["globalTRG"], 1);
-  debug.local_trg_  = n_->create_publisher<ROS2Types::MarkerArray>(topics_["localTRG"], 1);
-  debug.obs_map_    = n_->create_publisher<ROS2Types::PointCloud>(topics_["obsMap"], 1);
-  debug.path_info_  = n_->create_publisher<ROS2Types::FloatArray>(topics_["pathInfo"], 1);
+  debug.global_trg_   = n_->create_publisher<ROS2Types::MarkerArray>(topics_["globalTRG"], 1);
+  debug.local_trg_    = n_->create_publisher<ROS2Types::MarkerArray>(topics_["localTRG"], 1);
+  debug.allowed_area_ = n_->create_publisher<ROS2Types::MarkerArray>(
+      topics_["allowedArea"], rclcpp::QoS(rclcpp::KeepLast(1)).reliable().transient_local());
+  debug.obs_map_   = n_->create_publisher<ROS2Types::PointCloud>(topics_["obsMap"], 1);
+  debug.path_info_ = n_->create_publisher<ROS2Types::FloatArray>(topics_["pathInfo"], 1);
 
   TRGPlanner::init();
+  publishAllowedAreaMarker();
   print("TRG Planner ROS2 initialized", TRGPlanner::param_.isVerbose);
 
   if (param_.replan_enabled && param_.replan_check_rate > 0.0f) {
@@ -81,13 +187,18 @@ void ROS2Node::getParams(const rclcpp::Node::SharedPtr &n_) {
   n_->declare_parameter<std::string>("ros2.topic.debug.globalTRG",
                                      "/trg_ros2_node/debug/globalTRG");
   n_->declare_parameter<std::string>("ros2.topic.debug.localTRG", "/trg_ros2_node/debug/localTRG");
+  n_->declare_parameter<std::string>("ros2.topic.debug.allowedArea",
+                                     "/navigation/allowed_area_marker");
   n_->declare_parameter<std::string>("ros2.topic.debug.obsMap",
                                      "/trg_ros2_node/debug/default_obsMap");
   n_->declare_parameter<std::string>("ros2.topic.debug.pathInfo",
                                      "/trg_ros2_node/debug/default_pathInfo");
 
-  n_->declare_parameter<std::string>("mapConfig", "default");
+  n_->declare_parameter<std::string>("mapConfig", "robocup_default");
   n_->declare_parameter<std::string>("mapConfigPath", "");
+  n_->declare_parameter<std::string>("prebuiltMapPath", "");
+  n_->declare_parameter<std::string>("boundaryFile", "");
+  n_->declare_parameter<std::string>("boundaryKeepoutMargin", "");
 
   //// Get parameters
   n_->get_parameter("ros2.isDebug", param_.isDebug);
@@ -109,13 +220,20 @@ void ROS2Node::getParams(const rclcpp::Node::SharedPtr &n_) {
   n_->get_parameter("ros2.topic.output.path", topics_["path"]);
   n_->get_parameter("ros2.topic.debug.globalTRG", topics_["globalTRG"]);
   n_->get_parameter("ros2.topic.debug.localTRG", topics_["localTRG"]);
+  n_->get_parameter("ros2.topic.debug.allowedArea", topics_["allowedArea"]);
   n_->get_parameter("ros2.topic.debug.obsMap", topics_["obsMap"]);
   n_->get_parameter("ros2.topic.debug.pathInfo", topics_["pathInfo"]);
 
   std::string map_config_name;
   std::string map_config_path;
+  std::string prebuilt_map_path;
+  std::string boundary_file;
+  std::string boundary_keepout_margin;
   n_->get_parameter("mapConfig", map_config_name);
   n_->get_parameter("mapConfigPath", map_config_path);
+  n_->get_parameter("prebuiltMapPath", prebuilt_map_path);
+  n_->get_parameter("boundaryFile", boundary_file);
+  n_->get_parameter("boundaryKeepoutMargin", boundary_keepout_margin);
   if (map_config_path.empty()) {
     map_config_path = std::string(TRG_ROS_DIR) + "/../config/" + map_config_name + ".yaml";
   }
@@ -124,6 +242,27 @@ void ROS2Node::getParams(const rclcpp::Node::SharedPtr &n_) {
     exit(1);
   }
   TRGPlanner::setParams(map_config_path);
+  if (!prebuilt_map_path.empty()) {
+    TRGPlanner::param_.preMapPath = prebuilt_map_path;
+  }
+  if (!boundary_file.empty()) {
+    std::filesystem::path boundary_path(boundary_file);
+    if (!std::filesystem::exists(boundary_path)) {
+      print_error("Allowed area file does not exist: " + boundary_path.string());
+      exit(1);
+    }
+    const bool override_keepout = !boundary_keepout_margin.empty();
+    float      keepout_margin  = TRGPlanner::param_.boundaryKeepoutMargin;
+    if (override_keepout) {
+      keepout_margin = std::stof(boundary_keepout_margin);
+    }
+    TRGPlanner::param_.boundaryEnabled = true;
+    TRGPlanner::param_.boundaryPath    = boundary_path.string();
+    TRGPlanner::loadAllowedArea();
+    if (override_keepout) {
+      TRGPlanner::param_.boundaryKeepoutMargin = keepout_margin;
+    }
+  }
 }
 
 void ROS2Node::cbPose(const std::shared_ptr<const ROS2Types::Pose> &msg) {
@@ -353,6 +492,7 @@ void ROS2Node::debugTimer() {
     if (TRGPlanner::flag_.obsIn) {
       publishCloud(n_, TRGPlanner::state_.frame_id, TRGPlanner::cs_.obsPtr, debug.obs_map_);
     }
+    publishAllowedAreaMarker();
     float loop_time   = toc(start_loop, "ms");
     int   remain_time = 1000 / param_.debug_rate - loop_time;
     if (remain_time > 0) {
@@ -360,6 +500,85 @@ void ROS2Node::debugTimer() {
     }
     thd.hz["debug"] = std::round(1000 / toc(start_loop, "ms") * 100) / 100;
   }
+}
+
+void ROS2Node::publishAllowedAreaMarker() {
+  ROS2Types::MarkerArray marker_array;
+  ROS2Types::Marker      delete_marker;
+  delete_marker.header.frame_id = param_.frame_id;
+  delete_marker.header.stamp    = n_->now();
+  delete_marker.action          = ROS2Types::Marker::DELETEALL;
+  marker_array.markers.push_back(delete_marker);
+
+  const auto &polygon = TRGPlanner::param_.boundaryPolygon;
+  if (!TRGPlanner::param_.boundaryEnabled || polygon.size() < 3) {
+    debug.allowed_area_->publish(marker_array);
+    return;
+  }
+
+  ROS2Types::Marker fill_marker;
+  fill_marker.header.frame_id = param_.frame_id;
+  fill_marker.header.stamp    = n_->now();
+  fill_marker.ns              = "allowed_area_fill";
+  fill_marker.id              = 1;
+  fill_marker.type            = ROS2Types::Marker::TRIANGLE_LIST;
+  fill_marker.action          = ROS2Types::Marker::ADD;
+  fill_marker.pose.orientation.w = 1.0;
+  fill_marker.scale.x = fill_marker.scale.y = fill_marker.scale.z = 1.0;
+  fill_marker.color.r = 0.1f;
+  fill_marker.color.g = 0.35f;
+  fill_marker.color.b = 1.0f;
+  fill_marker.color.a = 0.25f;
+
+  const auto triangles = triangulatePolygon(polygon);
+  for (const auto &triangle : triangles) {
+    for (const int index : triangle) {
+      const Eigen::Vector2f &pt = polygon[static_cast<std::size_t>(index)];
+      fill_marker.points.push_back(makePoint(pt.x(), pt.y(), kMarkerZ));
+    }
+  }
+
+  ROS2Types::Marker line_marker;
+  line_marker.header.frame_id = param_.frame_id;
+  line_marker.header.stamp    = n_->now();
+  line_marker.ns              = "allowed_area_outline";
+  line_marker.id              = 2;
+  line_marker.type            = ROS2Types::Marker::LINE_STRIP;
+  line_marker.action          = ROS2Types::Marker::ADD;
+  line_marker.pose.orientation.w = 1.0;
+  line_marker.scale.x = 0.06;
+  line_marker.color.r = 0.0f;
+  line_marker.color.g = 0.45f;
+  line_marker.color.b = 1.0f;
+  line_marker.color.a = 0.95f;
+  for (const Eigen::Vector2f &pt : polygon) {
+    line_marker.points.push_back(makePoint(pt.x(), pt.y(), kMarkerZ + 0.01f));
+  }
+  line_marker.points.push_back(makePoint(polygon.front().x(), polygon.front().y(), kMarkerZ + 0.01f));
+
+  ROS2Types::Marker vertex_marker;
+  vertex_marker.header.frame_id = param_.frame_id;
+  vertex_marker.header.stamp    = n_->now();
+  vertex_marker.ns              = "allowed_area_vertices";
+  vertex_marker.id              = 3;
+  vertex_marker.type            = ROS2Types::Marker::SPHERE_LIST;
+  vertex_marker.action          = ROS2Types::Marker::ADD;
+  vertex_marker.pose.orientation.w = 1.0;
+  vertex_marker.scale.x = 0.18;
+  vertex_marker.scale.y = 0.18;
+  vertex_marker.scale.z = 0.18;
+  vertex_marker.color.r = 0.0f;
+  vertex_marker.color.g = 0.75f;
+  vertex_marker.color.b = 1.0f;
+  vertex_marker.color.a = 1.0f;
+  for (const Eigen::Vector2f &pt : polygon) {
+    vertex_marker.points.push_back(makePoint(pt.x(), pt.y(), kMarkerZ + 0.04f));
+  }
+
+  marker_array.markers.push_back(fill_marker);
+  marker_array.markers.push_back(line_marker);
+  marker_array.markers.push_back(vertex_marker);
+  debug.allowed_area_->publish(marker_array);
 }
 
 void ROS2Node::vizGraph(std::string                                          type,
@@ -395,7 +614,7 @@ void ROS2Node::vizGraph(std::string                                          typ
     float z_offset = 0.15;
 
     for (const auto &node : nodes) {
-      if (node.second->state_ == TRG::NodeState::Invalid) {
+      if (node.second == nullptr || node.second->state_ == TRG::NodeState::Invalid) {
         continue;
       }
       geometry_msgs::msg::Point p;
@@ -418,19 +637,20 @@ void ROS2Node::vizGraph(std::string                                          typ
       n_marker.colors.push_back(color);
 
       for (const auto &edge : node.second->edges_) {
-        if (nodes.find(edge->dst_id_) == nodes.end()) {
+        const auto dst_it = nodes.find(edge->dst_id_);
+        if (dst_it == nodes.end() || dst_it->second == nullptr) {
           continue;
         }
-        if (nodes.at(edge->dst_id_)->state_ == TRG::NodeState::Invalid) {
+        if (dst_it->second->state_ == TRG::NodeState::Invalid) {
           continue;
         }
         geometry_msgs::msg::Point p1, p2;
         p1.x = node.second->pos_.x();
         p1.y = node.second->pos_.y();
         p1.z = node.second->pos_.z() + z_offset;
-        p2.x = nodes.at(edge->dst_id_)->pos_.x();
-        p2.y = nodes.at(edge->dst_id_)->pos_.y();
-        p2.z = nodes.at(edge->dst_id_)->pos_.z() + z_offset;
+        p2.x = dst_it->second->pos_.x();
+        p2.y = dst_it->second->pos_.y();
+        p2.z = dst_it->second->pos_.z() + z_offset;
         edge_marker.points.push_back(p1);
         edge_marker.points.push_back(p2);
         std_msgs::msg::ColorRGBA color;
